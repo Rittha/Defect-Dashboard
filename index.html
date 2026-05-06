@@ -3,49 +3,62 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nichias Cloud Signage System</title>
+    <title>Nichias Cloud Signage System - Auto Playlist</title>
     <style>
         /* สไตล์หน้าจอเต็มจอแบบไม่มีขอบ */
         body { margin: 0; background: #000; overflow: hidden; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
         video { width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 
-        /* แผงควบคุมลับ (Hover เพื่อแสดง) */
+        /* แผงควบคุมลับ (เอาเมาส์ไปชี้ที่มุมขวาบนเพื่อแสดง) */
         #admin-panel { 
             position: fixed; top: 10px; right: 10px; 
-            background: rgba(0,0,0,0.8); color: #fff; padding: 20px; 
+            background: rgba(0,0,0,0.85); color: #fff; padding: 20px; 
             opacity: 0; transition: 0.5s; z-index: 100; 
             border-radius: 12px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            border: 1px solid #444;
+            border: 1px solid #444; width: 300px;
         }
         #admin-panel:hover { opacity: 1; }
         
+        h3 { margin: 0 0 10px 0; font-size: 16px; color: #00a2ff; }
+        input[type="file"] { font-size: 12px; width: 100%; margin-bottom: 10px; }
+        
         button { 
             background: #0078d4; color: white; border: none; padding: 10px 15px; 
-            border-radius: 5px; cursor: pointer; margin-top: 10px; width: 100%;
+            border-radius: 5px; cursor: pointer; width: 100%; font-weight: bold;
         }
-        button:disabled { background: #555; }
-        .status-text { font-size: 12px; margin-top: 8px; color: #aaa; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        
+        .status-box { 
+            margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.1); 
+            border-radius: 5px; font-size: 12px; line-height: 1.5;
+        }
+        #file-list { margin-top: 10px; color: #00ff00; font-size: 11px; }
     </style>
 </head>
 <body>
 
-    <!-- ส่วนแสดงวิดีโอ -->
-    <video id="player" loop muted autoplay playsinline></video>
+    <!-- หน้าจอเล่นวิดีโอ -->
+    <video id="player" muted autoplay playsinline></video>
 
-    <!-- แผงควบคุม (เอาเมาส์มาชี้ที่มุมขวาบน) -->
+    <!-- แผงควบคุม (ซ่อนไว้ ให้เอาเมาส์ชี้) -->
     <div id="admin-panel">
-        <strong style="display:block; margin-bottom:10px;">Cloud Control Panel</strong>
-        <input type="file" id="fileInput" accept="video/mp4" style="font-size:12px;">
-        <button onclick="uploadToFirebase()" id="btnUpload">Upload to Cloud</button>
-        <div id="status" class="status-text">Ready</div>
+        <h3>Cloud Signage Control</h3>
+        <input type="file" id="fileInput" accept="video/mp4">
+        <button onclick="uploadToFirebase()" id="btnUpload">Upload New Video</button>
+        
+        <div class="status-box">
+            <div id="status">กำลังโหลดเพลย์ลิสต์...</div>
+            <div id="file-list"></div>
+        </div>
+        <small style="display:block; margin-top:10px; color:#888;">*วิดีโอจะเล่นวนลูปทุกไฟล์ใน Storage</small>
     </div>
 
-    <!-- โหลด Firebase SDK แบบ Compat เพื่อความง่ายในการเขียน script -->
+    <!-- โหลด Firebase SDK (เวอร์ชันเสถียร) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-storage-compat.js"></script>
 
     <script>
-        // 1. นำค่า Config ของพี่มาใส่ตรงนี้
+        // 1. การตั้งค่า Firebase (จากที่พี่ก๊อปปี้มา)
         const firebaseConfig = {
             apiKey: "AIzaSyD_QngcLOyJdTFsG8SjJpOlsa7DgHNV1FU",
             authDomain: "qc-dashboad.firebaseapp.com",
@@ -56,53 +69,101 @@
             measurementId: "G-9Q4DWNRW2E"
         };
 
-        // 2. เริ่มต้นระบบ Firebase
+        // 2. เริ่มต้นใช้งาน Firebase
         firebase.initializeApp(firebaseConfig);
         const storage = firebase.storage();
+        
         const player = document.getElementById('player');
         const status = document.getElementById('status');
+        const fileListDisplay = document.getElementById('file-list');
         const btn = document.getElementById('btnUpload');
 
-        // 3. ฟังก์ชันดึงวิดีโอจาก Cloud มาเล่น
-        function refreshVideo() {
-            const storageRef = storage.ref('display_video.mp4');
-            storageRef.getDownloadURL().then((url) => {
-                player.src = url;
-                player.play();
-                status.innerText = "สถานะ: กำลังเล่นวิดีโอจาก Cloud";
-            }).catch((error) => {
-                status.innerText = "ยังไม่มีไฟล์บน Cloud กรุณาอัปโหลดไฟล์แรก";
-            });
+        let playlist = [];
+        let currentIndex = 0;
+
+        // 3. ฟังก์ชันดึงรายชื่อไฟล์ทั้งหมดจาก Cloud Storage
+        async function refreshPlaylist() {
+            const storageRef = storage.ref();
+            try {
+                const result = await storageRef.listAll();
+                
+                // ดึง URL ของแต่ละไฟล์
+                const promises = result.items.map(item => item.getDownloadURL());
+                playlist = await Promise.all(promises);
+
+                if (playlist.length > 0) {
+                    fileListDisplay.innerText = `รายการไฟล์: ${result.items.length} ไฟล์`;
+                    // ถ้ายังไม่ได้เล่น หรือเล่นจบแล้ว ให้เริ่มเล่น
+                    if (!player.src) {
+                        playVideo(0);
+                    }
+                } else {
+                    status.innerText = "สถานะ: มืดตึบ (ยังไม่มีไฟล์ใน Cloud)";
+                }
+            } catch (error) {
+                console.error(error);
+                status.innerText = "Error: ไม่สามารถดึงข้อมูลได้";
+            }
         }
 
-        // 4. ฟังก์ชันอัปโหลดไฟล์
+        // 4. ฟังก์ชันสั่งเล่นวิดีโอตามลำดับ
+        function playVideo(index) {
+            if (playlist.length === 0) return;
+            
+            currentIndex = index;
+            player.src = playlist[currentIndex];
+            player.load();
+            player.play().catch(e => {
+                status.innerText = "คลิกที่หน้าจอหนึ่งครั้งเพื่อเริ่มเล่น";
+            });
+            
+            status.innerText = `กำลังเล่นไฟล์ที่: ${currentIndex + 1} / ${playlist.length}`;
+        }
+
+        // 5. เมื่อวิดีโอจบ ให้ขยับไปไฟล์ถัดไป
+        player.onended = () => {
+            currentIndex++;
+            if (currentIndex >= playlist.length) {
+                currentIndex = 0; // วนกลับไปไฟล์แรก
+            }
+            playVideo(currentIndex);
+        };
+
+        // 6. ฟังก์ชันอัปโหลดไฟล์ใหม่ (ใช้ชื่อเดิมของไฟล์)
         async function uploadToFirebase() {
-            const file = document.getElementById('fileInput').files[0];
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
             if (!file) return alert("กรุณาเลือกไฟล์วิดีโอก่อนครับ");
 
             btn.disabled = true;
-            status.innerText = "กำลังอัปโหลด... กรุณารอสักครู่";
+            status.innerText = "กำลังอัปโหลดไฟล์... กรุณารอสักครู่";
 
-            const storageRef = storage.ref('display_video.mp4');
+            const storageRef = storage.ref(file.name); // เก็บด้วยชื่อเดิม
             
             try {
                 await storageRef.put(file);
-                status.innerText = "อัปโหลดสำเร็จ! กำลังรีเฟรชหน้าจอ...";
-                status.style.color = "#4caf50";
+                status.innerText = "อัปโหลดสำเร็จ!";
+                fileInput.value = ""; // ล้างค่าหลังอัปโหลด
+                
+                // รีโหลดเพลย์ลิสต์ใหม่
                 setTimeout(() => {
-                    refreshVideo();
+                    refreshPlaylist();
                     btn.disabled = false;
                 }, 2000);
             } catch (e) {
-                console.error(e);
-                status.innerText = "เกิดข้อผิดพลาด: " + e.message;
-                status.style.color = "#f44336";
+                alert("เกิดข้อผิดพลาดในการอัปโหลด: " + e.message);
                 btn.disabled = false;
             }
         }
 
-        // เริ่มโหลดวิดีโอทันทีที่เปิดหน้าเว็บ
-        refreshVideo();
+        // เริ่มต้นทำงานทันทีที่เปิดหน้าเว็บ
+        refreshPlaylist();
+
+        // แก้ปัญหา Browser บล็อก Auto Play (ต้องคลิกก่อนในครั้งแรก)
+        window.onclick = () => {
+            if (player.paused) player.play();
+        };
     </script>
 </body>
 </html>
