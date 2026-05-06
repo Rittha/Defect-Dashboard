@@ -3,156 +3,106 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Factory Signage System</title>
+    <title>Nichias Cloud Signage System</title>
     <style>
-        /* ล้างค่าเริ่มต้นของ Browser */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        /* สไตล์หน้าจอเต็มจอแบบไม่มีขอบ */
+        body { margin: 0; background: #000; overflow: hidden; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 
-        body {
-            background-color: #000;
-            overflow: hidden; /* ห้ามมีแถบเลื่อน */
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        /* แผงควบคุมลับ (Hover เพื่อแสดง) */
+        #admin-panel { 
+            position: fixed; top: 10px; right: 10px; 
+            background: rgba(0,0,0,0.8); color: #fff; padding: 20px; 
+            opacity: 0; transition: 0.5s; z-index: 100; 
+            border-radius: 12px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            border: 1px solid #444;
         }
-
-        /* ส่วนแสดงวิดีโอเต็มจอ */
-        #display-section {
-            width: 100%;
-            height: 100%;
-            z-index: 1;
+        #admin-panel:hover { opacity: 1; }
+        
+        button { 
+            background: #0078d4; color: white; border: none; padding: 10px 15px; 
+            border-radius: 5px; cursor: pointer; margin-top: 10px; width: 100%;
         }
-
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover; /* ขยายให้เต็มพื้นที่จอพอดี */
-        }
-
-        /* ปุ่มเริ่มระบบ (จะหายไปเมื่อกด) */
-        #start-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #000;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            color: #fff;
-            font-family: sans-serif;
-        }
-
-        #start-button {
-            padding: 20px 40px;
-            font-size: 24px;
-            cursor: pointer;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 50px;
-            font-weight: bold;
-            box-shadow: 0 0 20px rgba(40, 167, 69, 0.5);
-        }
-
-        /* แผงควบคุมแบบซ่อน (Hover เพื่อแสดง) */
-        #admin-panel {
-            position: fixed;
-            top: 0;
-            right: 0;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            color: #fff;
-            opacity: 0; /* ซ่อนไว้ */
-            transition: opacity 0.5s;
-            z-index: 100;
-            border-bottom-left-radius: 15px;
-            font-family: sans-serif;
-        }
-
-            #admin-panel:hover {
-                opacity: 1; /* แสดงผลเมื่อเอาเมาส์ไปชี้ */
-            }
-
-        .upload-status {
-            font-size: 12px;
-            margin-top: 10px;
-            font-weight: bold;
-        }
+        button:disabled { background: #555; }
+        .status-text { font-size: 12px; margin-top: 8px; color: #aaa; }
     </style>
 </head>
 <body>
 
-    <!-- หน้ากากเริ่มต้นเพื่อเปิดระบบเสียง -->
-    <div id="start-overlay">
-        <h1>NICHIAS SIGNAGE SYSTEM</h1>
-        <button id="start-button" onclick="startDisplay()">START DISPLAY</button>
-    </div>
-
     <!-- ส่วนแสดงวิดีโอ -->
-    <div id="display-section">
-        <video id="player" loop playsinline>
-            <source id="videoSource" src="/uploads/display_video.mp4" type="video/mp4">
-        </video>
+    <video id="player" loop muted autoplay playsinline></video>
+
+    <!-- แผงควบคุม (เอาเมาส์มาชี้ที่มุมขวาบน) -->
+    <div id="admin-panel">
+        <strong style="display:block; margin-bottom:10px;">Cloud Control Panel</strong>
+        <input type="file" id="fileInput" accept="video/mp4" style="font-size:12px;">
+        <button onclick="uploadToFirebase()" id="btnUpload">Upload to Cloud</button>
+        <div id="status" class="status-text">Ready</div>
     </div>
 
-    <!-- แผงควบคุมลับ (เอาเมาส์ไปชี้มุมขวาบนถึงจะเห็น) -->
-    <div id="admin-panel">
-        <p style="margin-bottom: 10px;">จัดการวิดีโอโฆษณา</p>
-        <input type="file" id="fileInput" accept="video/mp4">
-        <button onclick="uploadFile()" style="margin-top:10px; cursor:pointer;">อัปโหลดไฟล์ใหม่</button>
-        <div id="status" class="upload-status"></div>
-    </div>
+    <!-- โหลด Firebase SDK แบบ Compat เพื่อความง่ายในการเขียน script -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-storage-compat.js"></script>
 
     <script>
-        const video = document.getElementById('player');
-        const source = document.getElementById('videoSource');
-        const overlay = document.getElementById('start-overlay');
+        // 1. นำค่า Config ของพี่มาใส่ตรงนี้
+        const firebaseConfig = {
+            apiKey: "AIzaSyD_QngcLOyJdTFsG8SjJpOlsa7DgHNV1FU",
+            authDomain: "qc-dashboad.firebaseapp.com",
+            projectId: "qc-dashboad",
+            storageBucket: "qc-dashboad.firebasestorage.app",
+            messagingSenderId: "875270177668",
+            appId: "1:875270177668:web:7cee8a67f9f5d7b2e7d3d1",
+            measurementId: "G-9Q4DWNRW2E"
+        };
 
-        function startDisplay() {
-            overlay.style.display = 'none';
-            video.muted = false; // เปิดเสียง
-            refreshVideo();
-        }
+        // 2. เริ่มต้นระบบ Firebase
+        firebase.initializeApp(firebaseConfig);
+        const storage = firebase.storage();
+        const player = document.getElementById('player');
+        const status = document.getElementById('status');
+        const btn = document.getElementById('btnUpload');
 
+        // 3. ฟังก์ชันดึงวิดีโอจาก Cloud มาเล่น
         function refreshVideo() {
-            source.src = "/uploads/display_video.mp4?t=" + new Date().getTime();
-            video.load();
-            video.play().catch(e => console.log("Waiting for user interaction"));
+            const storageRef = storage.ref('display_video.mp4');
+            storageRef.getDownloadURL().then((url) => {
+                player.src = url;
+                player.play();
+                status.innerText = "สถานะ: กำลังเล่นวิดีโอจาก Cloud";
+            }).catch((error) => {
+                status.innerText = "ยังไม่มีไฟล์บน Cloud กรุณาอัปโหลดไฟล์แรก";
+            });
         }
 
-        async function uploadFile() {
-            const fileInput = document.getElementById('fileInput');
-            if (fileInput.files.length === 0) return;
+        // 4. ฟังก์ชันอัปโหลดไฟล์
+        async function uploadToFirebase() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) return alert("กรุณาเลือกไฟล์วิดีโอก่อนครับ");
 
-            const statusEl = document.getElementById('status');
-            statusEl.innerText = "(กำลังอัปโหลด)...";
-            statusEl.style.color = "orange";
+            btn.disabled = true;
+            status.innerText = "กำลังอัปโหลด... กรุณารอสักครู่";
 
-            const formData = new FormData();
-            formData.append('mediaFile', fileInput.files[0]);
-
+            const storageRef = storage.ref('display_video.mp4');
+            
             try {
-                const response = await fetch('/upload', { method: 'POST', body: formData });
-                if (response.ok) {
-                    statusEl.innerText = "อัปโหลดสำเร็จ!";
-                    statusEl.style.color = "#00ff00";
-                    setTimeout(refreshVideo, 1000);
-                }
-            } catch (err) {
-                statusEl.innerText = "Error: เชื่อมต่อไม่ได้";
-                statusEl.style.color = "red";
+                await storageRef.put(file);
+                status.innerText = "อัปโหลดสำเร็จ! กำลังรีเฟรชหน้าจอ...";
+                status.style.color = "#4caf50";
+                setTimeout(() => {
+                    refreshVideo();
+                    btn.disabled = false;
+                }, 2000);
+            } catch (e) {
+                console.error(e);
+                status.innerText = "เกิดข้อผิดพลาด: " + e.message;
+                status.style.color = "#f44336";
+                btn.disabled = false;
             }
         }
+
+        // เริ่มโหลดวิดีโอทันทีที่เปิดหน้าเว็บ
+        refreshVideo();
     </script>
 </body>
 </html>
