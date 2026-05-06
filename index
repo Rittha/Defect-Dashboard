@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>Industrial Signage Dashboard</title>
+    <style>
+        body { margin: 0; background: #000; color: white; font-family: sans-serif; overflow: hidden; }
+        #display-container { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        video { max-width: 100%; max-height: 100%; border: none; }
+        
+        /* ส่วนควบคุมที่จะซ่อนไว้ */
+        #admin-panel { 
+            position: fixed; bottom: 10px; left: 10px; 
+            background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px;
+            opacity: 0; transition: opacity 0.3s;
+        }
+        #admin-panel:hover { opacity: 1; }
+    </style>
+</head>
+<body>
+
+    <div id="display-container">
+        <!-- วิดีโอจะเล่นวนลูป (loop) และปิดเสียง (muted) เพื่อให้เล่นอัตโนมัติได้ทุกเบราว์เซอร์ -->
+        <video id="mainVideo" controls autoplay muted loop>
+            <source id="videoSource" src="default-video.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+
+    <!-- ปุ่มควบคุมสำหรับอัปโหลดหรือเปลี่ยนไฟล์ -->
+    <div id="admin-panel">
+        <p>อัปโหลดวิดีโอใหม่ (เล่นในเครื่องนี้):</p>
+        <input type="file" id="fileInput" accept="video/mp4">
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const video = document.getElementById('mainVideo');
+        const videoSource = document.getElementById('videoSource');
+
+        // เมื่อมีการเลือกไฟล์จากคอมพิวเตอร์
+        fileInput.addEventListener('change', function() {
+            const file = this.files[0];
+            if (file) {
+                const fileURL = URL.createObjectURL(file);
+                videoSource.src = fileURL;
+                video.load();
+                video.play();
+                
+                // เก็บชื่อไฟล์ไว้ใน LocalStorage เพื่อให้เวลา Refresh หน้าเว็บแล้วยังเล่นไฟล์เดิมได้ (เฉพาะเครื่องนั้น)
+                localStorage.setItem('lastVideo', fileURL);
+            }
+        });
+    </script>
+</body>
+</html>
